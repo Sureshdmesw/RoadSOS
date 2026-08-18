@@ -149,18 +149,11 @@ app.use((_req, res) => {
 */
 
 app.use(
-  (
-    error: unknown,
-    _req: express.Request,
-    res: express.Response,
-    _next: express.NextFunction
-  ) => {
-    console.error("Unhandled server error:", error);
-
-    res.status(500).json({
-      message: "Internal server error",
-    });
-  }
+  cors({
+    origin: process.env.FRONTEND_URL || "http://localhost:5173",
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  })
 );
 
 /*
