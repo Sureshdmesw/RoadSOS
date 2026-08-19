@@ -25,6 +25,7 @@ interface EmergencyDatabaseRow {
   status: "ACTIVE" | "ACKNOWLEDGED" | "RESOLVED";
   created_at: string;
   acknowledged_at: string | null;
+  resolved_at: string | null;
 }
 
 /*
@@ -363,7 +364,8 @@ export const getMyEmergencies = async (
            encrypted_payload,
            status,
            created_at,
-           acknowledged_at
+           acknowledged_at,
+           resolved_at
          FROM emergency_events
          WHERE user_id = ?
          ORDER BY created_at DESC`,
@@ -407,6 +409,9 @@ export const getMyEmergencies = async (
 
             acknowledged_at:
               emergency.acknowledged_at,
+
+            resolved_at:
+              emergency.resolved_at,
           };
         }
       );
@@ -462,7 +467,8 @@ export const getActiveEmergencies =
              e.encrypted_payload,
              e.status,
              e.created_at,
-             e.acknowledged_at
+             e.acknowledged_at,
+             e.resolved_at
            FROM emergency_events e
            LEFT JOIN users u
              ON e.user_id = u.id
@@ -514,6 +520,9 @@ export const getActiveEmergencies =
 
               acknowledged_at:
                 emergency.acknowledged_at,
+
+              resolved_at:
+                emergency.resolved_at,
             };
           }
         );
@@ -723,6 +732,12 @@ export const resolveEmergency =
 
       await connection.beginTransaction();
 
+      /*
+      |--------------------------------------------------------------------------
+      | Lock Emergency Row
+      |--------------------------------------------------------------------------
+      */
+
       const [rows] =
         await connection.execute(
           `SELECT
@@ -743,6 +758,12 @@ export const resolveEmergency =
             | "RESOLVED";
         }>;
 
+      /*
+      |--------------------------------------------------------------------------
+      | Emergency Not Found
+      |--------------------------------------------------------------------------
+      */
+
       if (
         emergencies.length === 0
       ) {
@@ -753,6 +774,16 @@ export const resolveEmergency =
             "Emergency not found",
         });
       }
+
+      /*
+      |--------------------------------------------------------------------------
+      | State Validation
+      |--------------------------------------------------------------------------
+      |
+      | Only ACKNOWLEDGED emergencies
+      | can be resolved.
+      |
+      */
 
       if (
         emergencies[0].status !==
@@ -766,12 +797,26 @@ export const resolveEmergency =
         });
       }
 
+      /*
+      |--------------------------------------------------------------------------
+      | Mark Emergency as Resolved
+      |--------------------------------------------------------------------------
+      */
+
       await connection.execute(
         `UPDATE emergency_events
-         SET status = 'RESOLVED'
+         SET
+           status = 'RESOLVED',
+           resolved_at = CURRENT_TIMESTAMP
          WHERE id = ?`,
         [emergencyId]
       );
+
+      /*
+      |--------------------------------------------------------------------------
+      | Audit Log
+      |--------------------------------------------------------------------------
+      */
 
       await connection.execute(
         `INSERT INTO audit_logs
@@ -790,13 +835,22 @@ export const resolveEmergency =
 
       await connection.commit();
 
+      /*
+      |--------------------------------------------------------------------------
+      | Response
+      |--------------------------------------------------------------------------
+      */
+
       return res.status(200).json({
         message:
           "Emergency resolved successfully",
 
         emergency: {
           id: emergencyId,
-          status: "RESOLVED",
+          status:
+            "RESOLVED",
+          resolved_at:
+            new Date().toISOString(),
         },
       });
     } catch (error) {
