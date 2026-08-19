@@ -28,6 +28,11 @@ interface EmergencyDatabaseRow {
   resolved_at: string | null;
 }
 
+interface EmergencyWithUser
+  extends EmergencyDatabaseRow {
+  user_name?: string;
+}
+
 /*
 |--------------------------------------------------------------------------
 | Create Emergency
@@ -81,9 +86,7 @@ export const createEmergency = async (
     */
 
     const normalizedEmergencyType =
-      emergencyType
-        .trim()
-        .toUpperCase();
+      emergencyType.trim().toUpperCase();
 
     const allowedEmergencyTypes = [
       "ACCIDENT",
@@ -110,19 +113,12 @@ export const createEmergency = async (
     |--------------------------------------------------------------------------
     */
 
-    const parsedLatitude =
-      Number(latitude);
-
-    const parsedLongitude =
-      Number(longitude);
+    const parsedLatitude = Number(latitude);
+    const parsedLongitude = Number(longitude);
 
     if (
-      !Number.isFinite(
-        parsedLatitude
-      ) ||
-      !Number.isFinite(
-        parsedLongitude
-      )
+      !Number.isFinite(parsedLatitude) ||
+      !Number.isFinite(parsedLongitude)
     ) {
       return res.status(400).json({
         message:
@@ -164,30 +160,23 @@ export const createEmergency = async (
       message !== undefined &&
       message !== null
     ) {
-      if (
-        typeof message !== "string"
-      ) {
+      if (typeof message !== "string") {
         return res.status(400).json({
           message:
             "Emergency message must be a string",
         });
       }
 
-      normalizedMessage =
-        message.trim();
+      normalizedMessage = message.trim();
 
-      if (
-        normalizedMessage.length > 500
-      ) {
+      if (normalizedMessage.length > 500) {
         return res.status(400).json({
           message:
             "Emergency message cannot exceed 500 characters",
         });
       }
 
-      if (
-        normalizedMessage.length === 0
-      ) {
+      if (normalizedMessage.length === 0) {
         normalizedMessage = null;
       }
     }
@@ -198,12 +187,11 @@ export const createEmergency = async (
     |--------------------------------------------------------------------------
     */
 
-    const sensitivePayload: EmergencyPayload =
-      {
-        latitude: parsedLatitude,
-        longitude: parsedLongitude,
-        message: normalizedMessage,
-      };
+    const sensitivePayload: EmergencyPayload = {
+      latitude: parsedLatitude,
+      longitude: parsedLongitude,
+      message: normalizedMessage,
+    };
 
     /*
     |--------------------------------------------------------------------------
@@ -212,9 +200,7 @@ export const createEmergency = async (
     */
 
     const encryptedPayload =
-      encryptData(
-        sensitivePayload
-      );
+      encryptData(sensitivePayload);
 
     /*
     |--------------------------------------------------------------------------
@@ -232,10 +218,8 @@ export const createEmergency = async (
     | Store Encrypted Emergency
     |--------------------------------------------------------------------------
     |
-    | SECURITY:
-    |
-    | The sensitive GPS/message payload is
-    | encrypted BEFORE reaching MySQL.
+    | Sensitive GPS/message data is encrypted
+    | before being stored in MySQL.
     |
     */
 
@@ -295,16 +279,22 @@ export const createEmergency = async (
 
       emergency: {
         id: insertResult.insertId,
+
         userId:
           req.user.userId,
+
         emergencyType:
           normalizedEmergencyType,
+
         latitude:
           parsedLatitude,
+
         longitude:
           parsedLongitude,
+
         message:
           normalizedMessage,
+
         status: "ACTIVE",
       },
     });
@@ -343,104 +333,112 @@ export const createEmergency = async (
 |
 */
 
-export const getMyEmergencies = async (
-  req: AuthenticatedRequest,
-  res: Response
-) => {
-  try {
-    if (!req.user) {
-      return res.status(401).json({
+export const getMyEmergencies =
+  async (
+    req: AuthenticatedRequest,
+    res: Response
+  ) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({
+          message:
+            "Authentication required",
+        });
+      }
+
+      const [rows] =
+        await pool.execute(
+          `SELECT
+             id,
+             user_id,
+             emergency_type,
+             encrypted_payload,
+             status,
+             created_at,
+             acknowledged_at,
+             resolved_at
+           FROM emergency_events
+           WHERE user_id = ?
+           ORDER BY created_at DESC`,
+          [req.user.userId]
+        );
+
+      const emergencies =
+        rows as EmergencyDatabaseRow[];
+
+      const decryptedEmergencies =
+        emergencies.map(
+          (emergency) => {
+            const payload =
+              decryptData<EmergencyPayload>(
+                emergency.encrypted_payload
+              );
+
+            return {
+              id: emergency.id,
+
+              user_id:
+                emergency.user_id,
+
+              emergency_type:
+                emergency.emergency_type,
+
+              latitude:
+                payload.latitude,
+
+              longitude:
+                payload.longitude,
+
+              message:
+                payload.message,
+
+              status:
+                emergency.status,
+
+              created_at:
+                emergency.created_at,
+
+              acknowledged_at:
+                emergency.acknowledged_at,
+
+              resolved_at:
+                emergency.resolved_at,
+            };
+          }
+        );
+
+      return res.status(200).json({
+        emergencies:
+          decryptedEmergencies,
+      });
+    } catch (error) {
+      console.error(
+        "Fetch user emergencies error:",
+        error
+      );
+
+      return res.status(500).json({
         message:
-          "Authentication required",
+          "Unable to fetch emergencies",
       });
     }
-
-    const [rows] =
-      await pool.execute(
-        `SELECT
-           id,
-           user_id,
-           emergency_type,
-           encrypted_payload,
-           status,
-           created_at,
-           acknowledged_at,
-           resolved_at
-         FROM emergency_events
-         WHERE user_id = ?
-         ORDER BY created_at DESC`,
-        [req.user.userId]
-      );
-
-    const emergencies =
-      rows as EmergencyDatabaseRow[];
-
-    const decryptedEmergencies =
-      emergencies.map(
-        (emergency) => {
-          const payload =
-            decryptData<EmergencyPayload>(
-              emergency.encrypted_payload
-            );
-
-          return {
-            id: emergency.id,
-
-            user_id:
-              emergency.user_id,
-
-            emergency_type:
-              emergency.emergency_type,
-
-            latitude:
-              payload.latitude,
-
-            longitude:
-              payload.longitude,
-
-            message:
-              payload.message,
-
-            status:
-              emergency.status,
-
-            created_at:
-              emergency.created_at,
-
-            acknowledged_at:
-              emergency.acknowledged_at,
-
-            resolved_at:
-              emergency.resolved_at,
-          };
-        }
-      );
-
-    return res.status(200).json({
-      emergencies:
-        decryptedEmergencies,
-    });
-  } catch (error) {
-    console.error(
-      "Fetch user emergencies error:",
-      error
-    );
-
-    return res.status(500).json({
-      message:
-        "Unable to fetch emergencies",
-    });
-  }
-};
+  };
 
 /*
 |--------------------------------------------------------------------------
-| Get Active Emergencies
+| Get Active / Acknowledged Emergencies
 |--------------------------------------------------------------------------
 |
 | GET /api/emergencies/active
 |
 | RESPONDER / ADMIN only
+|
+| Returns:
+|   ACTIVE
+|   ACKNOWLEDGED
+|
+| Does NOT return:
+|   RESOLVED
 |
 */
 
@@ -472,12 +470,12 @@ export const getActiveEmergencies =
            FROM emergency_events e
            LEFT JOIN users u
              ON e.user_id = u.id
-           WHERE e.status = 'ACTIVE'
+           WHERE e.status IN ('ACTIVE', 'ACKNOWLEDGED')
            ORDER BY e.created_at ASC`
         );
 
       const emergencies =
-        rows as EmergencyDatabaseRow[];
+        rows as EmergencyWithUser[];
 
       const decryptedEmergencies =
         emergencies.map(
@@ -494,11 +492,7 @@ export const getActiveEmergencies =
                 emergency.user_id,
 
               user_name:
-                (
-                  emergency as EmergencyDatabaseRow & {
-                    user_name?: string;
-                  }
-                ).user_name,
+                emergency.user_name,
 
               emergency_type:
                 emergency.emergency_type,
@@ -548,6 +542,9 @@ export const getActiveEmergencies =
 |--------------------------------------------------------------------------
 | Acknowledge Emergency
 |--------------------------------------------------------------------------
+|
+| ACTIVE → ACKNOWLEDGED
+|
 */
 
 export const acknowledgeEmergency =
@@ -569,9 +566,7 @@ export const acknowledgeEmergency =
         Number(req.params.id);
 
       if (
-        !Number.isInteger(
-          emergencyId
-        ) ||
+        !Number.isInteger(emergencyId) ||
         emergencyId <= 0
       ) {
         return res.status(400).json({
@@ -584,6 +579,12 @@ export const acknowledgeEmergency =
         await pool.getConnection();
 
       await connection.beginTransaction();
+
+      /*
+      |--------------------------------------------------------------------------
+      | Lock Emergency Row
+      |--------------------------------------------------------------------------
+      */
 
       const [rows] =
         await connection.execute(
@@ -605,9 +606,13 @@ export const acknowledgeEmergency =
             | "RESOLVED";
         }>;
 
-      if (
-        emergencies.length === 0
-      ) {
+      /*
+      |--------------------------------------------------------------------------
+      | Emergency Not Found
+      |--------------------------------------------------------------------------
+      */
+
+      if (emergencies.length === 0) {
         await connection.rollback();
 
         return res.status(404).json({
@@ -615,6 +620,12 @@ export const acknowledgeEmergency =
             "Emergency not found",
         });
       }
+
+      /*
+      |--------------------------------------------------------------------------
+      | State Validation
+      |--------------------------------------------------------------------------
+      */
 
       if (
         emergencies[0].status !==
@@ -628,6 +639,12 @@ export const acknowledgeEmergency =
         });
       }
 
+      /*
+      |--------------------------------------------------------------------------
+      | Update Status
+      |--------------------------------------------------------------------------
+      */
+
       await connection.execute(
         `UPDATE emergency_events
          SET
@@ -637,6 +654,12 @@ export const acknowledgeEmergency =
          WHERE id = ?`,
         [emergencyId]
       );
+
+      /*
+      |--------------------------------------------------------------------------
+      | Audit Log
+      |--------------------------------------------------------------------------
+      */
 
       await connection.execute(
         `INSERT INTO audit_logs
@@ -695,6 +718,9 @@ export const acknowledgeEmergency =
 |--------------------------------------------------------------------------
 | Resolve Emergency
 |--------------------------------------------------------------------------
+|
+| ACKNOWLEDGED → RESOLVED
+|
 */
 
 export const resolveEmergency =
@@ -716,9 +742,7 @@ export const resolveEmergency =
         Number(req.params.id);
 
       if (
-        !Number.isInteger(
-          emergencyId
-        ) ||
+        !Number.isInteger(emergencyId) ||
         emergencyId <= 0
       ) {
         return res.status(400).json({
@@ -764,9 +788,7 @@ export const resolveEmergency =
       |--------------------------------------------------------------------------
       */
 
-      if (
-        emergencies.length === 0
-      ) {
+      if (emergencies.length === 0) {
         await connection.rollback();
 
         return res.status(404).json({
