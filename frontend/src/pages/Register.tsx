@@ -9,39 +9,64 @@ import {
 import { useAuth } from "../context/AuthContext";
 
 const Register = () => {
-  const {
-    register,
-  } = useAuth();
+  const { register } = useAuth();
 
   const navigate = useNavigate();
 
-  const [name, setName] =
-    useState("");
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
 
-  const [email, setEmail] =
-    useState("");
-
-  const [password, setPassword] =
-    useState("");
-
-  const [error, setError] =
-    useState("");
-
-  const [loading, setLoading] =
-    useState(false);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (
-    event: FormEvent
+    event: FormEvent<HTMLFormElement>
   ) => {
     event.preventDefault();
 
     setError("");
+
+    const trimmedName = name.trim();
+    const trimmedEmail = email.trim();
+
+    // Validate full name
+    if (trimmedName.length < 2) {
+      setError(
+        "Please enter your full name."
+      );
+      return;
+    }
+
+    if (trimmedName.length > 100) {
+      setError(
+        "Full name cannot exceed 100 characters."
+      );
+      return;
+    }
+
+    // Validate email
+    if (!trimmedEmail) {
+      setError(
+        "Please enter your email address."
+      );
+      return;
+    }
+
+    // Validate password
+    if (password.length < 8) {
+      setError(
+        "Password must be at least 8 characters."
+      );
+      return;
+    }
+
     setLoading(true);
 
     try {
       await register(
-        name,
-        email,
+        trimmedName,
+        trimmedEmail,
         password
       );
 
@@ -52,7 +77,7 @@ const Register = () => {
       setError(
         error instanceof Error
           ? error.message
-          : "Registration failed"
+          : "Registration failed. Please try again."
       );
     } finally {
       setLoading(false);
@@ -64,6 +89,7 @@ const Register = () => {
       <form
         className="auth-card"
         onSubmit={handleSubmit}
+        noValidate
       >
         <div className="brand">
           🚨 RoadSOS
@@ -72,45 +98,62 @@ const Register = () => {
         <h1>Create account</h1>
 
         <p>
-          Get access to roadside emergency
-          assistance.
+          Create your account to access
+          roadside emergency assistance.
         </p>
 
         {error && (
-          <div className="error-message">
+          <div
+            className="error-message"
+            role="alert"
+          >
             {error}
           </div>
         )}
 
-        <label>
+        {/* Full Name */}
+        <label htmlFor="name">
           Full name
+
           <input
+            id="name"
             type="text"
             value={name}
             onChange={(event) =>
               setName(event.target.value)
             }
-            placeholder="Your name"
+            placeholder="Enter your full name"
+            autoComplete="name"
+            maxLength={100}
             required
+            disabled={loading}
           />
         </label>
 
-        <label>
+        {/* Email */}
+        <label htmlFor="email">
           Email
+
           <input
+            id="email"
             type="email"
             value={email}
             onChange={(event) =>
               setEmail(event.target.value)
             }
             placeholder="you@example.com"
+            autoComplete="email"
             required
+            disabled={loading}
           />
         </label>
 
-        <label>
+        {/* Password */}
+        <label htmlFor="password">
           Password
+
           <input
+            id="password"
             type="password"
             value={password}
             onChange={(event) =>
@@ -118,9 +161,11 @@ const Register = () => {
                 event.target.value
               )
             }
-            placeholder="••••••••"
+            placeholder="Minimum 8 characters"
+            autoComplete="new-password"
             minLength={8}
             required
+            disabled={loading}
           />
         </label>
 
@@ -136,6 +181,7 @@ const Register = () => {
 
         <p className="auth-footer">
           Already have an account?{" "}
+
           <Link to="/login">
             Sign in
           </Link>

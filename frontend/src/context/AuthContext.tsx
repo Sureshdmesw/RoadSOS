@@ -42,12 +42,25 @@ export const AuthProvider = ({
 }: {
   children: ReactNode;
 }) => {
-  const [user, setUser] = useState<User | null>(null);
-  const [token, setToken] = useState<string | null>(
-    () => localStorage.getItem("roadsos_token")
+  const [user, setUser] = useState<User | null>(
+    null
   );
 
-  const [loading, setLoading] = useState(true);
+  const [token, setToken] = useState<string | null>(
+    () =>
+      localStorage.getItem(
+        "roadsos_token"
+      )
+  );
+
+  const [loading, setLoading] =
+    useState(true);
+
+  /*
+  |--------------------------------------------------------------------------
+  | Restore Existing Session
+  |--------------------------------------------------------------------------
+  */
 
   useEffect(() => {
     const restoreSession = async () => {
@@ -57,16 +70,37 @@ export const AuthProvider = ({
       }
 
       try {
-        const response = await getMe(token);
+        const response =
+          await getMe(token);
 
-        setUser({
-          id: response.user.userId,
-          name: "",
-          email: "",
-          role: response.user.role,
-        });
-      } catch {
-        localStorage.removeItem("roadsos_token");
+        /*
+         * Keep the complete user object
+         * returned by the backend.
+         *
+         * Previously this was:
+         *
+         * {
+         *   id: response.user.userId,
+         *   name: "",
+         *   email: "",
+         *   role: response.user.role
+         * }
+         *
+         * which caused the user's name
+         * to disappear after refresh.
+         */
+
+        setUser(response.user);
+      } catch (error) {
+        console.error(
+          "Unable to restore session:",
+          error
+        );
+
+        localStorage.removeItem(
+          "roadsos_token"
+        );
+
         setToken(null);
         setUser(null);
       } finally {
@@ -77,14 +111,21 @@ export const AuthProvider = ({
     restoreSession();
   }, [token]);
 
+  /*
+  |--------------------------------------------------------------------------
+  | Login
+  |--------------------------------------------------------------------------
+  */
+
   const login = async (
     email: string,
     password: string
   ) => {
-    const response = await loginApi(
-      email,
-      password
-    );
+    const response =
+      await loginApi(
+        email.trim(),
+        password
+      );
 
     localStorage.setItem(
       "roadsos_token",
@@ -92,25 +133,96 @@ export const AuthProvider = ({
     );
 
     setToken(response.token);
+
+    /*
+     * Store the complete user returned
+     * by the login API.
+     *
+     * This should contain:
+     * id
+     * name
+     * email
+     * role
+     */
+
     setUser(response.user);
   };
+
+  /*
+  |--------------------------------------------------------------------------
+  | Register
+  |--------------------------------------------------------------------------
+  */
 
   const register = async (
     name: string,
     email: string,
     password: string
   ) => {
+    const trimmedName =
+      name.trim();
+
+    const trimmedEmail =
+      email.trim();
+
+    if (trimmedName.length < 2) {
+      throw new Error(
+        "Please enter your full name."
+      );
+    }
+
+    if (trimmedName.length > 100) {
+      throw new Error(
+        "Full name cannot exceed 100 characters."
+      );
+    }
+
+    if (!trimmedEmail) {
+      throw new Error(
+        "Please enter your email address."
+      );
+    }
+
+    if (password.length < 8) {
+      throw new Error(
+        "Password must be at least 8 characters."
+      );
+    }
+
+    /*
+     * Send the user's name to the backend.
+     */
+
     await registerApi(
-      name,
-      email,
+      trimmedName,
+      trimmedEmail,
       password
     );
 
-    await login(email, password);
+    /*
+     * Automatically log the user in
+     * after successful registration.
+     *
+     * The login response should contain
+     * the newly registered user's name.
+     */
+
+    await login(
+      trimmedEmail,
+      password
+    );
   };
 
+  /*
+  |--------------------------------------------------------------------------
+  | Logout
+  |--------------------------------------------------------------------------
+  */
+
   const logout = () => {
-    localStorage.removeItem("roadsos_token");
+    localStorage.removeItem(
+      "roadsos_token"
+    );
 
     setToken(null);
     setUser(null);
@@ -133,7 +245,8 @@ export const AuthProvider = ({
 };
 
 export const useAuth = () => {
-  const context = useContext(AuthContext);
+  const context =
+    useContext(AuthContext);
 
   if (!context) {
     throw new Error(
